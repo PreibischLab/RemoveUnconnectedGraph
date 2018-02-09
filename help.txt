@@ -1,0 +1,6 @@
+here is the new version:
+ 
+'f' - hold key down while moving the mouse paints into the image 'left arrow' - go to previous timepoint 'right arrow' - go to next timepoint  Also the bug is removed where it got stuck ... 
+ 
+your plugin is finally done, I actually like it  
+It works on single channel and composite. If it is composite, it will ask you which channel is the segmentation channel. Now, here comes how it works:  's' - shows all nodes (where lines meet, so you get an idea)        RED - dead ends         MAGENTA - nodes that have two connections (and are actually therefore no nodes) - they are created when you delete one segment. They had three nodes before, now they have only two ... pressing 'r' (see below) will get rid of them         GREEN - nodes with 3 or more segments connecting to it 'x' - remove all dead ends 'r' - re-analyze the image (if you draw something manually in there or if you want him to re-detect nodes, e.g. to get rid of the MAGENTA nodes)  mouse click - select a segment, pressing 'd' will delete it  If you have more questions let me know, we can skype, here is a screenshot (one segment in the middle selected) and the jar that you have to put into the plugin directory.
