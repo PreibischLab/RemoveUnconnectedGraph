@@ -17,3 +17,13 @@ Todo:
 	- press 'R' to transfer all of it to the ROI manager
 	
 	
+How to make your own plugin:
+
+	- install latest Java SE (http://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html)
+	- download Maven .bin.zip (https://maven.apache.org/download.cgi)
+	- install Maven (https://maven.apache.org/install.html)
+	
+	- open Terminal
+	- go to folder
+	- run "./build.sh" OR "mvn clean package -Denforcer.skip=true"
+	- creates a JAR file in the target directory, copy it to the Fiji plugins directory (and delete the old version)
