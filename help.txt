@@ -27,7 +27,14 @@ How to make your own plugin:
 	- go to folder
 	- run "./build.sh" OR "mvn clean package -Denforcer.skip=true"
 	- creates a JAR file in the target directory, copy it to the Fiji plugins directory (and delete the old version)
-	
+
+How to import the project in Eclipse:
+
+	- download Eclipse JDT (http://www.eclipse.org/downloads/packages/eclipse-ide-java-developers/oxygen3a)
+	- run Eclipse
+	- import Existing Maven Project
+	- select the pom.xml file, ok
+
 My ~/.bash_profile file looks like this:
 
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/
