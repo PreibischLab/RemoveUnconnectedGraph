@@ -27,3 +27,11 @@ How to make your own plugin:
 	- go to folder
 	- run "./build.sh" OR "mvn clean package -Denforcer.skip=true"
 	- creates a JAR file in the target directory, copy it to the Fiji plugins directory (and delete the old version)
+	
+My ~/.bash_profile file looks like this:
+
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_144.jdk/Contents/Home/
+export M2_HOME=/Users/spreibi/apache-maven-3.5.0
+export PATH=$PATH:$M2_HOME/bin
+
+maybe more stuff
