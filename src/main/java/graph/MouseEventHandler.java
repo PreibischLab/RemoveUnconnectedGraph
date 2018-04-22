@@ -9,6 +9,7 @@ import ij.gui.PolygonRoi;
 import ij.gui.TextRoi;
 import ij.measure.ResultsTable;
 import ij.plugin.filter.Analyzer;
+import ij.plugin.frame.RoiManager;
 
 import java.awt.Color;
 import java.awt.event.KeyEvent;
@@ -28,6 +29,7 @@ import net.imglib2.Point;
 import net.imglib2.RealPoint;
 import net.imglib2.neighborsearch.NearestNeighborSearch;
 import net.imglib2.neighborsearch.NearestNeighborSearchOnKDTree;
+import net.imglib2.util.Pair;
 import fiji.tool.AbstractTool;
 import fiji.tool.SliceListener;
 import fiji.tool.SliceObserver;
@@ -44,12 +46,14 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	final ImageCanvas canvas;
 	final int channel;
 	final SliceObserver sliceObserver;
-	
+
+	// the currently visible frame
 	Image< T > img;
+
 	LocalizableByDimCursor< T > randomAccess;
 	int currentFrame;
 	ArrayList< Node > nodes;
-	KDTree< Node > nodeTree;
+	//KDTree< Node > nodeTree;
 	
 	Segment segment = null;
 	int x = 0, y = 0;
@@ -58,8 +62,12 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 
 	boolean trackingMode = false;
 	boolean trackingInitialized = false;
+
+	// the location of the tracked segment in each frame
+	final Segment[] segmentLocationPerFrame;
+
 	// the location of the tracked node in each frame
-	final int[][] nodeLocationPerFrame;
+	//final int[][] nodeLocationPerFrame;
 	
 	public MouseEventHandler( final ImagePlus imp, final int channel, final ComputeUnconnected parent ) 
 	{ 
@@ -70,9 +78,10 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		
 		updateSource();
 		imp.getWindow().toFront();
-		
-		this.nodeLocationPerFrame = new int[ imp.getNFrames() ][ 2 ];
-				
+
+		//this.nodeLocationPerFrame = new int[ imp.getNFrames() ][ 2 ];
+		this.segmentLocationPerFrame = new Segment[ imp.getNFrames() ];
+
 		this.sliceObserver = new SliceObserver( imp, new ImagePlusListener() );
 		this.clearToolsIfNecessary = true;
 		
@@ -93,10 +102,10 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		
 		this.nodes = parent.analyzeNodes( img, currentFrame );
 		
-		if ( trackingMode )
-			this.nodeTree = new KDTree<Node>( nodes, nodes );
-		else
-			this.nodeTree = null;
+		//if ( trackingMode )
+		//	this.nodeTree = new KDTree<Node>( nodes, nodes );
+		//else
+		//	this.nodeTree = null;
 		
 		imp.updateAndDraw();
 		displayAllInformation();
@@ -200,25 +209,30 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		
 		if ( trackingMode )
 		{
-			final Node refNode;
+			final Segment refSegment;
 			
 			if ( !trackingInitialized )
 			{
 				updateSource();
 				final int refFrame = imp.getFrame();
+
+				// find the closest point on a path
+				final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
 				
-				// find the closest node to the click for the current time-point	
-				refNode = parent.findClosest3WayNode( nodeTree, new RealPoint( new float[] { x, y } ) );
-				
-				if ( refNode == null )
+				if ( position == null )
 					return;
-								
-				nodeLocationPerFrame[ refFrame - 1 ][ 0 ] = refNode.getPosition()[ 0 ];
-				nodeLocationPerFrame[ refFrame - 1 ][ 1 ] = refNode.getPosition()[ 1 ];
-				
+
+				// get the two nodes that are connected by this path
+				refSegment = parent.findSegment( img, nodes, position );
+
+				if ( refSegment == null )
+					return;
+
+				segmentLocationPerFrame[ refFrame - 1 ] = refSegment;
+
 				// propagate back in time
 				boolean success = trackForwardThroughTime( refFrame );
-				
+
 				// propagate forward in time
 				success &= trackBackwardThroughTime( refFrame );
 
@@ -226,20 +240,26 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 				
 				if ( !success )
 					return;
-				
+
 				trackingInitialized = true;
 			}
 			else
 			{
-				refNode = parent.findClosest3WayNode( nodeTree, new RealPoint( new float[] { x, y } ) );
+				// find the closest point on a path
+				final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
 				
-				if ( refNode == null )
+				if ( position == null )
 					return;
-				
-				nodeLocationPerFrame[ imp.getFrame() - 1 ][ 0 ] = refNode.getPosition()[ 0 ];
-				nodeLocationPerFrame[ imp.getFrame() - 1 ][ 1 ] = refNode.getPosition()[ 1 ];
+
+				// get the two nodes that are connected by this path
+				refSegment = parent.findSegment( img, nodes, position );
+
+				if ( refSegment == null )
+					return;
+
+				segmentLocationPerFrame[ imp.getFrame() - 1 ] = refSegment;
 			}
-			
+
 			displayAllInformation();
 		}
 		else
@@ -280,24 +300,35 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	
 	protected boolean trackForwardThroughTime( final int refFrame )
 	{
+		IJ.log( "nf= " + imp.getNFrames() );
+		IJ.log( "refFrame= " + refFrame );
+
 		// propagate forward in time
 		for ( int t = refFrame + 1; t <= imp.getNFrames(); ++t )
 		{
+			IJ.log( "t= " + t );
+			final Segment lastSegment = segmentLocationPerFrame[ t - 2 ];
+			final ArrayList< int[] > lastPoints = lastSegment.getPoints();
+
+			if ( lastPoints == null || lastPoints.size() == 0 )
+			{
+				IJ.log( "Last segment of " + t + " is null." );
+				return false;
+			}
+
 			// triggers already updateSource() due to the SliceListener
 			imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), t ) );
 
-			// find the closest node relative to the previous time-point	
-			Node node = parent.findClosest3WayNode( nodeTree, new RealPoint( new float[] { nodeLocationPerFrame[ t - 2 ][ 0 ], nodeLocationPerFrame[ t - 2 ][ 1 ] } ) );
+			final Segment segment = findSegmentInFrame( lastPoints );
 
-			if ( node == null )
+			if ( segment == null )
 			{
-				IJ.log( "There was a problem finding the 3 segments in frame " + t + ", node = null" );
+				IJ.log( "There was a problem finding corresponding segment in frame " + t + " (Forward tracking), node = null" );
 				return false;
 			}
 			else
 			{
-				nodeLocationPerFrame[ t - 1 ][ 0 ] = node.getPosition()[ 0 ];
-				nodeLocationPerFrame[ t - 1 ][ 1 ] = node.getPosition()[ 1 ];
+				segmentLocationPerFrame[ t - 1 ] = segment;
 			}
 		}
 		return true;
@@ -307,25 +338,64 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	{
 		for ( int t = refFrame - 1; t >= 1; --t )
 		{
+			final Segment lastSegment = segmentLocationPerFrame[ t ];
+			final ArrayList< int[] > lastPoints = lastSegment.getPoints();
+
+			if ( lastPoints == null || lastPoints.size() == 0 )
+			{
+				IJ.log( "Last segment of " + t + " is null." );
+				return false;
+			}
+
 			// triggers already updateSource() due to the SliceListener
 			imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), t ) );
 
-			// find the closest node relative to the previous time-point	
-			Node node = parent.findClosest3WayNode( nodeTree, new RealPoint( new float[] { nodeLocationPerFrame[ t ][ 0 ], nodeLocationPerFrame[ t ][ 1 ] } ) );
-			
-			if ( node == null )
+			final Segment segment = findSegmentInFrame( lastPoints );
+
+			if ( segment == null )
 			{
-				IJ.log( "There was a problem finding the 3 segments in frame " + t + ", node = null" );
+				IJ.log( "There was a problem finding corresponding segment in frame " + t + " (Backward tracking), node = null" );
 				return false;
 			}
 			else
 			{
-				nodeLocationPerFrame[ t - 1 ][ 0 ] = node.getPosition()[ 0 ];
-				nodeLocationPerFrame[ t - 1 ][ 1 ] = node.getPosition()[ 1 ];
+				segmentLocationPerFrame[ t - 1 ] = segment;
 			}
 		}
 		
 		return true;
+	}
+
+	protected Segment findSegmentInFrame( final ArrayList< int[] > lastPoints )
+	{
+		int[] position = null;
+		Segment segment = null;
+
+		for ( int i = 0; i < 3; ++i )
+		{
+			final int[] lastPoint;
+
+			if ( i == 0 )
+				lastPoint = lastPoints.get( lastPoints.size() / 2 );
+			else if ( i == 1 )
+				lastPoint = lastPoints.get( lastPoints.size() / 3 );
+			else
+				lastPoint = lastPoints.get( Math.min( lastPoints.size() - 1, ( lastPoints.size() / 3 ) * 2 ) );
+
+			// find the closest segment relative to the previous time-point
+			position = parent.findClosestPointOnPath( img, lastPoint[ 0 ], lastPoint[ 1 ], nodes );
+
+			if ( position == null )
+				continue;
+
+			// get the two nodes that are connected by this path
+			segment = parent.findSegment( img, nodes, position );
+
+			if ( segment != null )
+				break;
+		}
+
+		return segment;
 	}
 
 	@Override
@@ -463,10 +533,10 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 			else
 			{
 				trackingMode = true;
-				for ( int n = 0; n < imp.getNFrames(); ++n )
-					nodeLocationPerFrame[ n ][ 0 ] = nodeLocationPerFrame[ n ][ 1 ] = -1;
+				//for ( int n = 0; n < imp.getNFrames(); ++n )
+				//	nodeLocationPerFrame[ n ][ 0 ] = nodeLocationPerFrame[ n ][ 1 ] = -1;
 				this.nodes = parent.analyzeNodes( img, currentFrame );
-				this.nodeTree = new KDTree<Node>( nodes, nodes );
+				//this.nodeTree = new KDTree<Node>( nodes, nodes );
 				holdingKeyF = false;
 				trackingInitialized = false;
 				displayAllInformation();
@@ -511,163 +581,15 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	
 	protected Object measure()
 	{
-		ResultsTable rt = Analyzer.getResultsTable();
-		if (rt == null) 
-		{
-			rt = new ResultsTable();
-			Analyzer.setResultsTable( rt );
-		}
-		
-		/*
-		rt.incrementCounter();
-		rt.addValue("slice", 25);
-		rt.addValue("bratwurst", -1);
-		rt.show("Results");
-		*/
-		
-		// last vectors of each segment
-		float lastVector[][] = new float[ 3 ][ 2 ];
+		final RoiManager rm = RoiManagerHandling.getRoiManager();
 
-		// propagate forward in time
 		for ( int t = 1; t <= imp.getNFrames(); ++t )
 		{
-			// triggers already updateSource() due to the SliceListener
-			imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), t ) );
-
-			NearestNeighborSearch< Node > s = new NearestNeighborSearchOnKDTree<Node>( nodeTree );
-			s.search( new Point( nodeLocationPerFrame[ t - 1 ] ) );
-			final Node node = s.getSampler().get();
-			
-			// follow all three connections to the next node
-			final ArrayList< PartialSegment > segments = parent.findAllSegments( img, nodeTree, nodes, node );
-			
-			if ( segments == null )
-			{
-				IJ.log( "There was a problem finding the 3 segments for timepoint " + t );
-				return null;
-			}
-			else
-			{
-				rt.incrementCounter();
-				rt.addValue( "timepoint", t );
-				
-				PartialSegment s0, s1, s2;
-				
-				if ( t == 1 )
-				{
-					for ( int i = 0; i < 3; ++i )
-						for ( int d = 0; d < 2; ++d )
-							lastVector[ i ][ d ] = segments.get( i ).node1.getFloatPosition( d ) - node.getFloatPosition( d );
-					
-					s0 = segments.get( 0 );
-					s1 = segments.get( 1 );
-					s2 = segments.get( 2 );
-				}
-				else
-				{
-					float v[][] = new float[ 3 ][ 2 ];
-	
-					for ( int i = 0; i < 3; ++i )
-						for ( int d = 0; d < 2; ++d )
-							v[ i ][ d ] = segments.get( i ).node1.getFloatPosition( d ) - node.getFloatPosition( d );
-	
-					// assign s0, s1, s2
-					final float d00 = sqDistance( v[ 0 ], lastVector[ 0 ] );
-					final float d01 = sqDistance( v[ 0 ], lastVector[ 1 ] );
-					final float d02 = sqDistance( v[ 0 ], lastVector[ 2 ] );
-					final float d10 = sqDistance( v[ 1 ], lastVector[ 0 ] );
-					final float d11 = sqDistance( v[ 1 ], lastVector[ 1 ] );
-					final float d12 = sqDistance( v[ 1 ], lastVector[ 2 ] );
-					
-					if ( d00 < d01 && d00 < d02 )
-					{
-						// 0 to 0 mapping
-						s0 = segments.get( 0 );
-						lastVector[ 0 ] = v[ 0 ];
-						
-						if ( d11 < d12 )
-						{
-							s1 = segments.get( 1 );
-							s2 = segments.get( 2 );
-							lastVector[ 1 ] = v[ 1 ];
-							lastVector[ 2 ] = v[ 2 ];
-						}
-						else
-						{
-							s1 = segments.get( 2 );
-							s2 = segments.get( 1 );
-							lastVector[ 1 ] = v[ 2 ];
-							lastVector[ 2 ] = v[ 1 ];
-						}
-					}
-					else if ( d01 < d00 && d01 < d02 )
-					{
-						// 0 to 1 mapping
-						s0 = segments.get( 1 );
-						lastVector[ 0 ] = v[ 1 ];
-						
-						if ( d10 < d12 )
-						{
-							s1 = segments.get( 0 );
-							s2 = segments.get( 2 );
-							lastVector[ 1 ] = v[ 0 ];
-							lastVector[ 2 ] = v[ 2 ];
-						}
-						else
-						{
-							s1 = segments.get( 2 );
-							s2 = segments.get( 0 );
-							lastVector[ 1 ] = v[ 2 ];
-							lastVector[ 2 ] = v[ 0 ];							
-						}
-					}
-					else
-					{
-						// 0 to 2 mapping
-						s0 = segments.get( 2 );
-						lastVector[ 0 ] = v[ 2 ];
-						
-						if ( d11 < d10 )
-						{
-							s1 = segments.get( 1 );
-							s2 = segments.get( 0 );
-							lastVector[ 1 ] = v[ 1 ];
-							lastVector[ 2 ] = v[ 0 ];							
-						}
-						else
-						{
-							s1 = segments.get( 0 );
-							s2 = segments.get( 1 );
-							lastVector[ 1 ] = v[ 0 ];
-							lastVector[ 2 ] = v[ 1 ];														
-						}
-					}
-				}
-				
-				rt.addValue( "segment1 length", s0.points.size() );
-				rt.addValue( "segment2 length", s1.points.size() );
-				rt.addValue( "segment3 length", s2.points.size() );
-				
-				// all pixels in all other channels
-				if ( imp.getNChannels() > 1 )
-				{
-					for ( int c = 0; c < imp.getNChannels(); ++c )
-					{
-						if ( channel != c )
-						{
-							final Image< T > channelImg = ImageJFunctions.wrap( new ImagePlus( "wrapped", imp.getStack().getProcessor( imp.getStackIndex( c + 1, 1, t ) ) ) );
-
-							rt.addValue( "s1 avg intensity (c=" + (c + 1), meanIntensity( channelImg, s0 ) );
-							rt.addValue( "s2 avg intensity (c=" + (c + 1), meanIntensity( channelImg, s1 ) );
-							rt.addValue( "s3 avg intensity (c=" + (c + 1), meanIntensity( channelImg, s2 ) );
-						}
-					}
-				}
-			}
+			final Segment segment = segmentLocationPerFrame[ t -1 ];
+			if ( segment != null )
+				rm.addRoi( RoiManagerHandling.createRoi( segment.getPoints(), "t=" + t ) );
 		}
-		
-		rt.show( "Lengths of segments over time" );
-		
+
 		return true;
 	}
 	
@@ -708,27 +630,28 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	
 	protected Overlay getTrackingOverlay()
 	{
-		NearestNeighborSearch< Node > s = new NearestNeighborSearchOnKDTree<Node>( nodeTree );
-		s.search( new Point( nodeLocationPerFrame[ currentFrame - 1 ] ) );
-		final Node node = s.getSampler().get();
-		
-		// follow all three connections to the next node
-		final ArrayList< PartialSegment > segments = parent.findAllSegments( img, nodeTree, nodes, node );
-		
-		if ( segments == null )
-			IJ.log( "There was a problem finding the 3 segments, please try again." );
+		final Segment segment = segmentLocationPerFrame[ currentFrame - 1 ];
 
 		Overlay o = new Overlay();
-		OvalRoi o1 = new OvalRoi( node.getPosition()[ 0 ] - 3, node.getPosition()[ 1 ] - 3, 7, 7 );
+
+		if ( segment == null )
+		{
+			IJ.log( "There was a problem finding a segment for t=" + currentFrame + ", please add manually." );
+			return o;
+		}
+
+		OvalRoi o1 = new OvalRoi( segment.getNode1().getPosition()[ 0 ] - 3, segment.getNode1().getPosition()[ 1 ] - 3, 7, 7 );
 		o1.setStrokeColor( Color.GREEN );
 		o.add( o1 );
-		
-		for ( final PartialSegment seg : segments )
-		{
-			PolygonRoi roi = seg.getPolygonRoi();
-			roi.setStrokeColor( Color.RED );
-			o.add( roi );
-		}
+
+		o1 = new OvalRoi( segment.getNode2().getPosition()[ 0 ] - 3, segment.getNode2().getPosition()[ 1 ] - 3, 7, 7 );
+		o1.setStrokeColor( Color.GREEN );
+		o.add( o1 );
+
+		PolygonRoi roi = segment.getPolygonRoi();
+		roi.setStrokeColor( Color.RED );
+		o.add( roi );
+
 		o.add( getTrackingModeText() );
 		imp.setOverlay( o );
 		

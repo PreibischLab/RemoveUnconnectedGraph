@@ -1,17 +1,19 @@
 package graph;
 
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
+
+import ij.CompositeImage;
 import ij.IJ;
 import ij.ImageJ;
 import ij.ImagePlus;
 import ij.WindowManager;
 import ij.gui.GenericDialog;
-import ij.measure.ResultsTable;
+import ij.gui.OvalRoi;
+import ij.gui.Roi;
 import ij.plugin.PlugIn;
-import ij.plugin.filter.Analyzer;
-
-import java.util.ArrayList;
-import java.util.Collection;
-
+import ij.plugin.frame.RoiManager;
 import mpicbg.imglib.container.array.ArrayContainerFactory;
 import mpicbg.imglib.cursor.LocalizableByDimCursor;
 import mpicbg.imglib.cursor.LocalizableCursor;
@@ -20,7 +22,6 @@ import mpicbg.imglib.image.Image;
 import mpicbg.imglib.image.ImageFactory;
 import mpicbg.imglib.image.display.imagej.ImageJFunctions;
 import mpicbg.imglib.io.ImageOpener;
-import mpicbg.imglib.multithreading.SimpleMultiThreading;
 import mpicbg.imglib.outofbounds.OutOfBoundsStrategyValueFactory;
 import mpicbg.imglib.type.numeric.RealType;
 import mpicbg.imglib.type.numeric.integer.UnsignedByteType;
@@ -90,7 +91,7 @@ public class ComputeUnconnected implements PlugIn
 
 		interactiveRemoval( imp, -1 );
 	}
-	
+
 	public < T extends RealType< T > > void interactiveRemoval( ImagePlus imp, final int channel )
 	{
 		imp.show();
@@ -830,9 +831,15 @@ A:						for ( final int[] p1 : neighbors )
 	public static void main( String[] args )
 	{
 		new ImageJ();
-		
+
+		final CompositeImage c = new CompositeImage( new ImagePlus( new File( "test_kuba.tif" ).getAbsolutePath() ), CompositeImage.COMPOSITE );
+		c.setDimensions( 2, 1, c.getStackSize() / 2 );
+		c.show();
+
+		new ComputeUnconnected().interactiveRemoval( c, 0 );
+
 		//new ComputeUnconnected().loadFileAndStart( "/Users/preibischs/Desktop/kuba3.tif" );
-		new ComputeUnconnected().loadFileAndStart( "/Users/preibischs/Desktop/C2-segmentation_manual.tif" );
+		//new ComputeUnconnected().loadFileAndStart( "/Users/preibischs/Desktop/C2-segmentation_manual.tif" );
 		//new ComputeUnconnected().loadFileAndStart( "/Users/preibischs/Documents/Microscopy/tissue cells/C2-rigid-common-3.tif" );
 	}
 }
