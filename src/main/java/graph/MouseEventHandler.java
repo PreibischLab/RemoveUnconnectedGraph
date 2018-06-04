@@ -587,7 +587,10 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		{
 			final Segment segment = segmentLocationPerFrame[ t -1 ];
 			if ( segment != null )
+			{
+				imp.setPosition( imp.getChannel(), imp.getSlice(), t );
 				rm.addRoi( RoiManagerHandling.createRoi( segment.getPoints(), "t=" + t ) );
+			}
 		}
 
 		return true;
