@@ -8,6 +8,8 @@ import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
 import java.util.ArrayList;
 
+import javax.swing.SwingUtilities;
+
 import fiji.tool.AbstractTool;
 import fiji.tool.SliceListener;
 import fiji.tool.SliceObserver;
@@ -199,7 +201,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	{
 		final int x = getXCoordinate();
 		final int y = getYCoordinate();
-		
+
 		if ( trackingMode )
 		{
 			final Segment refSegment;
@@ -224,11 +226,10 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 					return;
 				}
 
-				// TODO: Fix that it does not stop if it cannot track it through time
 				segmentLocationPerFrame[ refFrame - 1 ] = refSegment;
 
-				// show progress
-				IJ.log( "Tracking forward and backwards through time ... " );
+				//TODO: remove LAG
+				SwingUtilities.invokeLater( () -> IJ.log( "Tracking forward and backwards through time ... " ) );
 				displayAllInformation();
 
 				// propagate back in time
@@ -504,15 +505,19 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		else if ( arg0.getKeyCode() == 27 ) //ESC
 		{
 			arg0.consume();
-			
-			imp.setOverlay( null );
-			
+
 			if ( sliceObserver != null )
 				sliceObserver.unregister();
-			
+
 			this.unregisterTool();
 			this.unregisterTool( imp );
 			this.unregisterTool( imp.getCanvas() );
+
+			imp.setOverlay( new Overlay() );
+			imp.setRoi( null, true );
+			imp.updateAndDraw();
+
+			IJ.log( "JET Plugin exited." );
 		}
 		else if ( arg0.getKeyChar() == 'f' || arg0.getKeyChar() == 'F' )
 		{
