@@ -7,6 +7,8 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
 import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import javax.swing.SwingUtilities;
 
@@ -24,6 +26,7 @@ import ij.plugin.frame.RoiManager;
 import mpicbg.imglib.cursor.LocalizableByDimCursor;
 import mpicbg.imglib.image.Image;
 import mpicbg.imglib.image.display.imagej.ImageJFunctions;
+import mpicbg.imglib.multithreading.SimpleMultiThreading;
 import mpicbg.imglib.outofbounds.OutOfBoundsStrategyValueFactory;
 import mpicbg.imglib.type.numeric.RealType;
 
@@ -202,102 +205,109 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		final int x = getXCoordinate();
 		final int y = getYCoordinate();
 
-		if ( trackingMode )
+		new Thread( new Runnable()
 		{
-			final Segment refSegment;
-			
-			if ( trackingInitialized == TrackingStatus.NOT_INITIALIZED )
+			@Override
+			public void run()
 			{
-				updateSource();
-				final int refFrame = imp.getFrame();
-
-				// find the closest point on a path
-				final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
-				
-				if ( position == null )
-					return;
-
-				// get the two nodes that are connected by this path
-				refSegment = parent.findSegment( img, nodes, position );
-
-				if ( refSegment == null )
+				if ( trackingMode )
 				{
-					trackingInitialized = TrackingStatus.NOT_INITIALIZED;
-					return;
+					final Segment refSegment;
+					
+					if ( trackingInitialized == TrackingStatus.NOT_INITIALIZED )
+					{
+						updateSource();
+						final int refFrame = imp.getFrame();
+
+						// find the closest point on a path
+						final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
+						
+						if ( position == null )
+							return;
+
+						// get the two nodes that are connected by this path
+						refSegment = parent.findSegment( img, nodes, position );
+
+						if ( refSegment == null )
+						{
+							trackingInitialized = TrackingStatus.NOT_INITIALIZED;
+							return;
+						}
+
+						segmentLocationPerFrame[ refFrame - 1 ] = refSegment;
+
+						SwingUtilities.invokeLater( () -> IJ.log( "Tracking forward and backwards through time ... " ) );
+
+						// propagate back in time
+						boolean success = trackForwardThroughTime( refFrame );
+
+						// propagate forward in time
+						success &= trackBackwardThroughTime( refFrame );
+
+						imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), refFrame ) );
+						
+						if ( !success )
+							trackingInitialized = TrackingStatus.PARTIALLY_TRACKED;
+						else
+							trackingInitialized = TrackingStatus.FULLY_TRACKED;
+					}
+					else
+					{
+						// find the closest point on a path
+						final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
+						
+						if ( position == null )
+							return;
+
+						// get the two nodes that are connected by this path
+						refSegment = parent.findSegment( img, nodes, position );
+
+						if ( refSegment == null )
+							return;
+
+						segmentLocationPerFrame[ imp.getFrame() - 1 ] = refSegment;
+					}
+
+					displayAllInformation();
 				}
-
-				segmentLocationPerFrame[ refFrame - 1 ] = refSegment;
-
-				//TODO: remove LAG
-				SwingUtilities.invokeLater( () -> IJ.log( "Tracking forward and backwards through time ... " ) );
-				displayAllInformation();
-
-				// propagate back in time
-				boolean success = trackForwardThroughTime( refFrame );
-
-				// propagate forward in time
-				success &= trackBackwardThroughTime( refFrame );
-
-				imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), refFrame ) );
-				
-				if ( !success )
-					trackingInitialized = TrackingStatus.PARTIALLY_TRACKED;
 				else
-					trackingInitialized = TrackingStatus.FULLY_TRACKED;
+				{
+					// find the closest point on a path
+					final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
+					
+					if ( position == null )
+					{
+						imp.setOverlay( null );
+						segment = null;
+						return;
+					}
+					
+					// get the two nodes that are connected by this path
+					segment = parent.findSegment( img, nodes, position );
+					
+					if ( segment == null )
+					{
+						imp.setOverlay( null );
+						return;
+					}
+					
+					Overlay o = new Overlay();
+					OvalRoi o1 = new OvalRoi( segment.getNode1().getPosition()[ 0 ] - 1, segment.getNode1().getPosition()[ 1 ] - 1, 3, 3 );
+					OvalRoi o2 = new OvalRoi( segment.getNode2().getPosition()[ 0 ] - 1, segment.getNode2().getPosition()[ 1 ] - 1, 3, 3 );
+					o1.setStrokeColor( Color.GREEN );
+					o2.setStrokeColor( Color.GREEN );
+					o.add( o1 );
+					o.add( o2 );
+					
+					PolygonRoi roi = segment.getPolygonRoi();
+					roi.setStrokeColor( Color.RED );
+					o.add( roi );
+					imp.setOverlay( o );
+				}
 			}
-			else
-			{
-				// find the closest point on a path
-				final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
-				
-				if ( position == null )
-					return;
+		} ).start();
 
-				// get the two nodes that are connected by this path
-				refSegment = parent.findSegment( img, nodes, position );
 
-				if ( refSegment == null )
-					return;
-
-				segmentLocationPerFrame[ imp.getFrame() - 1 ] = refSegment;
-			}
-
-			displayAllInformation();
-		}
-		else
-		{
-			// find the closest point on a path
-			final int[] position = parent.findClosestPointOnPath( img, x, y, nodes );
-			
-			if ( position == null )
-			{
-				imp.setOverlay( null );
-				segment = null;
-				return;
-			}
-			
-			// get the two nodes that are connected by this path
-			this.segment = parent.findSegment( img, nodes, position );
-			
-			if ( this.segment == null )
-			{
-				imp.setOverlay( null );
-				return;
-			}
-			
-			Overlay o = new Overlay();
-			OvalRoi o1 = new OvalRoi( segment.getNode1().getPosition()[ 0 ] - 1, segment.getNode1().getPosition()[ 1 ] - 1, 3, 3 );
-			OvalRoi o2 = new OvalRoi( segment.getNode2().getPosition()[ 0 ] - 1, segment.getNode2().getPosition()[ 1 ] - 1, 3, 3 );
-			o1.setStrokeColor( Color.GREEN );
-			o2.setStrokeColor( Color.GREEN );
-			o.add( o1 );
-			o.add( o2 );
-			
-			PolygonRoi roi = segment.getPolygonRoi();
-			roi.setStrokeColor( Color.RED );
-			o.add( roi );
-			imp.setOverlay( o );
-		}
 	}
 	
 	protected boolean trackForwardThroughTime( final int refFrame )
@@ -580,9 +590,17 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 			
 			if ( trackingMode && trackingInitialized != TrackingStatus.NOT_INITIALIZED )
 			{
-				int current = currentFrame;
-				measure();
-				imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), current ) );
+				final int current = currentFrame;
+
+				new Thread( new Runnable()
+				{
+					@Override
+					public void run()
+					{
+						measure();
+						imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), current ) );
+					}
+				}).start();
 			}
 		}
 		
@@ -602,6 +620,9 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 				rm.addRoi( RoiManagerHandling.createRoi( segment.getPoints(), "t=" + t ) );
 			}
 		}
+
+		rm.update( rm.getGraphics() );
+		rm.repaint();
 
 		return true;
 	}
@@ -663,6 +684,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 
 		PolygonRoi roi = segment.getPolygonRoi();
 		roi.setStrokeColor( Color.RED );
+		roi.setStrokeWidth( 2 );
 		o.add( roi );
 
 		o.add( getTrackingModeText() );
