@@ -1,16 +1,5 @@
 package graph;
 
-import ij.IJ;
-import ij.ImagePlus;
-import ij.gui.ImageCanvas;
-import ij.gui.OvalRoi;
-import ij.gui.Overlay;
-import ij.gui.PolygonRoi;
-import ij.gui.TextRoi;
-import ij.measure.ResultsTable;
-import ij.plugin.filter.Analyzer;
-import ij.plugin.frame.RoiManager;
-
 import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -19,20 +8,22 @@ import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
 import java.util.ArrayList;
 
+import fiji.tool.AbstractTool;
+import fiji.tool.SliceListener;
+import fiji.tool.SliceObserver;
+import ij.IJ;
+import ij.ImagePlus;
+import ij.gui.ImageCanvas;
+import ij.gui.OvalRoi;
+import ij.gui.Overlay;
+import ij.gui.PolygonRoi;
+import ij.gui.TextRoi;
+import ij.plugin.frame.RoiManager;
 import mpicbg.imglib.cursor.LocalizableByDimCursor;
 import mpicbg.imglib.image.Image;
 import mpicbg.imglib.image.display.imagej.ImageJFunctions;
 import mpicbg.imglib.outofbounds.OutOfBoundsStrategyValueFactory;
 import mpicbg.imglib.type.numeric.RealType;
-import net.imglib2.KDTree;
-import net.imglib2.Point;
-import net.imglib2.RealPoint;
-import net.imglib2.neighborsearch.NearestNeighborSearch;
-import net.imglib2.neighborsearch.NearestNeighborSearchOnKDTree;
-import net.imglib2.util.Pair;
-import fiji.tool.AbstractTool;
-import fiji.tool.SliceListener;
-import fiji.tool.SliceObserver;
 
 /**
  * Handles mouse & key events
@@ -40,7 +31,9 @@ import fiji.tool.SliceObserver;
  * @author Stephan Preibisch
  */
 public class MouseEventHandler< T extends RealType< T > > extends AbstractTool implements MouseMotionListener, MouseListener, KeyListener
-{	
+{
+	enum TrackingStatus{ NOT_INITIALIZED, PARTIALLY_TRACKED, FULLY_TRACKED };
+
 	final ComputeUnconnected parent;
 	final ImagePlus imp;
 	final ImageCanvas canvas;
@@ -61,7 +54,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	int xd = -1, yd = -1;
 
 	boolean trackingMode = false;
-	boolean trackingInitialized = false;
+	TrackingStatus trackingInitialized = TrackingStatus.NOT_INITIALIZED;
 
 	// the location of the tracked segment in each frame
 	final Segment[] segmentLocationPerFrame;
@@ -211,7 +204,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		{
 			final Segment refSegment;
 			
-			if ( !trackingInitialized )
+			if ( trackingInitialized == TrackingStatus.NOT_INITIALIZED )
 			{
 				updateSource();
 				final int refFrame = imp.getFrame();
@@ -226,9 +219,17 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 				refSegment = parent.findSegment( img, nodes, position );
 
 				if ( refSegment == null )
+				{
+					trackingInitialized = TrackingStatus.NOT_INITIALIZED;
 					return;
+				}
 
+				// TODO: Fix that it does not stop if it cannot track it through time
 				segmentLocationPerFrame[ refFrame - 1 ] = refSegment;
+
+				// show progress
+				IJ.log( "Tracking forward and backwards through time ... " );
+				displayAllInformation();
 
 				// propagate back in time
 				boolean success = trackForwardThroughTime( refFrame );
@@ -239,9 +240,9 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 				imp.setPosition( imp.getStackIndex( imp.getChannel(), imp.getSlice(), refFrame ) );
 				
 				if ( !success )
-					return;
-
-				trackingInitialized = true;
+					trackingInitialized = TrackingStatus.PARTIALLY_TRACKED;
+				else
+					trackingInitialized = TrackingStatus.FULLY_TRACKED;
 			}
 			else
 			{
@@ -523,22 +524,26 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		else if ( arg0.getKeyChar() == 't' || arg0.getKeyChar() == 'T' )
 		{
 			arg0.consume();
-			
+
 			if ( trackingMode )
 			{
 				trackingMode = false;
-				trackingInitialized = false;
+				trackingInitialized = TrackingStatus.NOT_INITIALIZED;
 				displayAllInformation();
 			}
 			else
 			{
 				trackingMode = true;
+
+				for ( int t = 1; t <= imp.getNFrames(); ++t )
+					segmentLocationPerFrame[ t - 1 ] = null;
+
 				//for ( int n = 0; n < imp.getNFrames(); ++n )
 				//	nodeLocationPerFrame[ n ][ 0 ] = nodeLocationPerFrame[ n ][ 1 ] = -1;
 				this.nodes = parent.analyzeNodes( img, currentFrame );
 				//this.nodeTree = new KDTree<Node>( nodes, nodes );
 				holdingKeyF = false;
-				trackingInitialized = false;
+				trackingInitialized = TrackingStatus.NOT_INITIALIZED;
 				displayAllInformation();
 			}
 		}
@@ -546,7 +551,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		{
 			arg0.consume();
 			
-			if ( trackingMode && trackingInitialized )
+			if ( trackingMode && trackingInitialized != TrackingStatus.NOT_INITIALIZED )
 			{
 				int current = currentFrame;
 				trackForwardThroughTime( current );
@@ -557,7 +562,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		{
 			arg0.consume();
 			
-			if ( trackingMode && trackingInitialized )
+			if ( trackingMode && trackingInitialized != TrackingStatus.NOT_INITIALIZED )
 			{
 				int current = currentFrame;
 				trackBackwardThroughTime( current );
@@ -568,7 +573,7 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 		{
 			arg0.consume();
 			
-			if ( trackingMode && trackingInitialized )
+			if ( trackingMode && trackingInitialized != TrackingStatus.NOT_INITIALIZED )
 			{
 				int current = currentFrame;
 				measure();
@@ -686,7 +691,9 @@ public class MouseEventHandler< T extends RealType< T > > extends AbstractTool i
 	{
 		if ( trackingMode )
 		{
-			if ( trackingInitialized )
+			if ( trackingInitialized == TrackingStatus.FULLY_TRACKED )
+				imp.setOverlay( getTrackingOverlay() );
+			else if ( trackingInitialized == TrackingStatus.PARTIALLY_TRACKED && segmentLocationPerFrame[ currentFrame - 1 ] != null )
 				imp.setOverlay( getTrackingOverlay() );
 			else
 				imp.setOverlay( new Overlay( getTrackingModeText() ) );
