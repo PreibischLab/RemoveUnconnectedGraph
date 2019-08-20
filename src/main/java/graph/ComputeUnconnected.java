@@ -832,11 +832,11 @@ A:						for ( final int[] p1 : neighbors )
 	{
 		new ImageJ();
 
-		final CompositeImage c = new CompositeImage( new ImagePlus( new File( "test_kuba.tif" ).getAbsolutePath() ), CompositeImage.COMPOSITE );
-		c.setDimensions( 2, 1, c.getStackSize() / 2 );
+		final CompositeImage c = new CompositeImage( new ImagePlus( new File( "cell1__test_1-250.tif" ).getAbsolutePath() ), CompositeImage.COMPOSITE );
+		c.setDimensions( 3, 1, c.getStackSize() / 3 );
 		c.show();
 
-		new ComputeUnconnected().interactiveRemoval( c, 0 );
+		new ComputeUnconnected().interactiveRemoval( c, 1 );
 
 		//new ComputeUnconnected().loadFileAndStart( "/Users/preibischs/Desktop/kuba3.tif" );
 		//new ComputeUnconnected().loadFileAndStart( "/Users/preibischs/Desktop/C2-segmentation_manual.tif" );
